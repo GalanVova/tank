@@ -4,6 +4,7 @@
 (() => {
   const originalStartGame = startGame;
   const originalMakeMap = makeMap;
+  const originalDrawTile = drawTile;
 
   function clearSpawnArea(map, cx, cy) {
     for (let y = cy - 1; y <= cy + 1; y++) {
@@ -59,6 +60,39 @@
     return {speed:48,hp:4,fire:0.7,color:"#5f6d45",name:"Толстяк"};
   };
 
+  // Отдельная физическая зона базы: танки не могут визуально залезать на орла,
+  // даже когда кирпичная защита уже разрушена.
+  function collidesBaseCore(o, nx, ny) {
+    const baseLeft = 13 * TILE - 4;
+    const baseTop = 23 * TILE - 4;
+    const baseRight = 14 * TILE + 4;
+    const baseBottom = 24 * TILE + 4;
+    return nx + o.w / 2 > baseLeft && nx - o.w / 2 < baseRight &&
+           ny + o.h / 2 > baseTop && ny - o.h / 2 < baseBottom;
+  }
+
+  // Проверяем перемещение короткими шагами и отдельно блокируем орла.
+  // Это не даёт ни игрокам, ни врагам проскакивать внутрь кирпича или базы.
+  tryMove = function (o, dx, dy, dt) {
+    let speed = o.speed;
+    if (tileAt(o.x, o.y) === ICE) speed *= 1.25;
+
+    const distance = speed * dt;
+    const steps = Math.max(1, Math.ceil(distance / 3));
+    const step = distance / steps;
+    let moved = false;
+
+    for (let i = 0; i < steps; i++) {
+      const nx = o.x + dx * step;
+      const ny = o.y + dy * step;
+      if (collidesBaseCore(o, nx, ny) || collidesMap(o, nx, ny) || collidesTanks(o, nx, ny)) break;
+      o.x = nx;
+      o.y = ny;
+      moved = true;
+    }
+    return moved;
+  };
+
   playerInput = function (p, dt) {
     if (!p.alive) return;
     let dx = 0, dy = 0, fire = false;
@@ -79,6 +113,64 @@
 
     if (dx || dy) tryMove(p, dx, dy, dt);
     if (fire) shoot(p);
+  };
+
+  // Кирпич разрушается цельным квадратным блоком 2x2 клетки.
+  // Блок выравнивается по чётной сетке, поэтому половинок и тонких остатков нет.
+  destroyTile = function (tx, ty, bullet) {
+    const tile = game.map[ty] && game.map[ty][tx];
+
+    if (tile === BRICK) {
+      const bx = Math.floor(tx / 2) * 2;
+      const by = Math.floor(ty / 2) * 2;
+      for (let y = by; y < by + 2; y++) {
+        for (let x = bx; x < bx + 2; x++) {
+          if (game.map[y] && game.map[y][x] === BRICK) game.map[y][x] = EMPTY;
+        }
+      }
+      bullet.alive = false;
+      return;
+    }
+
+    if (tile === STEEL && bullet.steel) {
+      game.map[ty][tx] = EMPTY;
+      bullet.alive = false;
+      return;
+    }
+
+    if (tile === BASE) {
+      game.baseAlive = false;
+      bullet.alive = false;
+      return;
+    }
+
+    if (tile !== EMPTY && tile !== BUSH && tile !== ICE && tile !== WATER) {
+      bullet.alive = false;
+    }
+  };
+
+  // Более цельный вид кирпичного блока без визуальных "полукирпичей" по краям.
+  drawTile = function (tile, x, y) {
+    if (tile !== BRICK) {
+      originalDrawTile(tile, x, y);
+      return;
+    }
+
+    const px = x * TILE;
+    const py = y * TILE;
+    ctx.fillStyle = "#7f2418";
+    ctx.fillRect(px, py, TILE, TILE);
+    ctx.fillStyle = "#d95532";
+    ctx.fillRect(px + 2, py + 2, TILE - 4, TILE - 4);
+    ctx.strokeStyle = "#6b1d14";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(px + 1, py + 1, TILE - 2, TILE - 2);
+    ctx.beginPath();
+    ctx.moveTo(px + TILE / 2, py + 2);
+    ctx.lineTo(px + TILE / 2, py + TILE - 2);
+    ctx.moveTo(px + 2, py + TILE / 2);
+    ctx.lineTo(px + TILE - 2, py + TILE / 2);
+    ctx.stroke();
   };
 
   // Снаряды идут через воду, лес и лёд, но не перескакивают кирпич/сталь/базу.
