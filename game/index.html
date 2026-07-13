@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Старые танки — локальный тест</title>
+<style>
+  html,body{margin:0;background:#111;color:#eee;font-family:Arial,sans-serif;height:100%}
+  body{display:flex;align-items:center;justify-content:center}
+  .wrap{display:flex;gap:18px;align-items:flex-start;padding:16px}
+  canvas{background:#000;border:4px solid #777;image-rendering:pixelated;max-width:76vw;max-height:92vh}
+  .panel{width:280px;background:#1c1c1c;border:1px solid #444;border-radius:10px;padding:14px}
+  h1{font-size:20px;margin:0 0 10px}
+  h2{font-size:15px;margin:14px 0 6px;color:#f6c453}
+  p{font-size:13px;line-height:1.35;margin:5px 0}
+  button,select{width:100%;padding:9px;margin:5px 0;background:#333;color:#fff;border:1px solid #666;border-radius:6px}
+  .ok{color:#7dff8d}.red{color:#ff6f61}.blue{color:#61b7ff}.small{font-size:12px;color:#bbb}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <canvas id="game" width="832" height="832"></canvas>
+  <div class="panel">
+    <h1>Старые танки — тест логики</h1>
+    <p class="ok">Открывается напрямую в браузере.</p>
+    <h2>Игрок 1</h2><p class="red">WASD — движение, Space — огонь</p>
+    <h2>Игрок 2</h2><p class="blue">Стрелки — движение, Enter — огонь</p>
+    <h2>Стартовые настройки</h2>
+    <label>Прокачка игрока 1</label>
+    <select id="p1lvl"><option value="1">1 — слабый</option><option value="2">2 — быстрый снаряд</option><option value="3">3 — двойной огонь</option><option value="4" selected>4 — бетонобойный</option></select>
+    <label>Прокачка игрока 2</label>
+    <select id="p2lvl"><option value="1">1 — слабый</option><option value="2">2 — быстрый снаряд</option><option value="3" selected>3 — двойной огонь</option><option value="4">4 — бетонобойный</option></select>
+    <button id="startBtn">Запустить / перезапустить</button>
+    <button id="pauseBtn">Пауза</button>
+    <h2>Проверяемая логика</h2>
+    <p>• враги едут к базе и атакуют игроков;</p>
+    <p>• быстрый враг заметно быстрее;</p>
+    <p>• тяжёлый враг имеет 4 брони;</p>
+    <p>• максимальная пушка пробивает бетон;</p>
+    <p>• бонусы выпадают с красных врагов;</p>
+    <p class="small">R — перезапуск. P — пауза.</p>
+  </div>
+</div>
+<script>
+"use strict";
+const canvas=document.getElementById("game"),ctx=canvas.getContext("2d");ctx.imageSmoothingEnabled=false;
+const TILE=32,COLS=26,ROWS=26,W=COLS*TILE,H=ROWS*TILE;
+const EMPTY=0,BRICK=1,STEEL=2,WATER=3,BUSH=4,ICE=5,BASE=6;
+const DIRS={up:{x:0,y:-1,a:0},right:{x:1,y:0,a:Math.PI/2},down:{x:0,y:1,a:Math.PI},left:{x:-1,y:0,a:-Math.PI/2}},DIR_NAMES=["up","right","down","left"];
+let keys={},game;
+addEventListener("keydown",e=>{keys[e.code]=true;if(["Space","ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Enter"].includes(e.code))e.preventDefault();if(e.code==="KeyR")startGame();if(e.code==="KeyP")game.paused=!game.paused});
+addEventListener("keyup",e=>keys[e.code]=false);
+const rand=(a,b)=>a+Math.random()*(b-a),choice=a=>a[(Math.random()*a.length)|0],dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
+function rectsOverlap(a,b){return a.x-a.w/2<b.x+b.w/2&&a.x+a.w/2>b.x-b.w/2&&a.y-a.h/2<b.y+b.h/2&&a.y+a.h/2>b.y-b.h/2}
+function makeMap(){const m=Array.from({length:ROWS},()=>Array(COLS).fill(EMPTY));for(let x=0;x<COLS;x++){m[0][x]=STEEL;m[ROWS-1][x]=STEEL}for(let y=0;y<ROWS;y++){m[y][0]=STEEL;m[y][COLS-1]=STEEL}m[23][13]=BASE;[[12,22],[13,22],[14,22],[12,23],[14,23],[12,24],[13,24],[14,24]].forEach(([x,y])=>m[y][x]=BRICK);const rs=[[2,3,3,6],[7,2,2,5],[11,3,4,2],[17,2,2,6],[21,3,3,6],[3,11,5,2],[10,9,2,5],[15,9,2,5],[19,11,4,2],[2,17,3,5],[7,16,2,6],[11,17,4,2],[17,16,2,6],[21,17,3,5],[5,7,2,2],[19,7,2,2],[5,14,2,2],[19,14,2,2]];for(const[x,y,w,h]of rs)for(let yy=y;yy<y+h;yy++)for(let xx=x;xx<x+w;xx++)m[yy][xx]=BRICK;[[12,7],[13,7],[12,8],[13,8],[4,9],[21,9],[4,15],[21,15]].forEach(([x,y])=>m[y][x]=STEEL);for(let x=9;x<=16;x++)m[6][x]=WATER;for(let x=9;x<=16;x++)m[15][x]=BUSH;for(let x=11;x<=14;x++)m[20][x]=ICE;[[2,1],[13,1],[23,1],[2,2],[13,2],[23,2]].forEach(([x,y])=>m[y][x]=EMPTY);return m}
+function tileAt(x,y){const tx=Math.floor(x/TILE),ty=Math.floor(y/TILE);if(tx<0||ty<0||tx>=COLS||ty>=ROWS)return STEEL;return game.map[ty][tx]}
+const solidTile=t=>t===BRICK||t===STEEL||t===WATER||t===BASE;
+function collidesMap(o,nx,ny){const minx=Math.floor((nx-o.w/2)/TILE),maxx=Math.floor((nx+o.w/2-1)/TILE),miny=Math.floor((ny-o.h/2)/TILE),maxy=Math.floor((ny+o.h/2-1)/TILE);for(let ty=miny;ty<=maxy;ty++)for(let tx=minx;tx<=maxx;tx++){if(tx<0||ty<0||tx>=COLS||ty>=ROWS)return true;if(solidTile(game.map[ty][tx]))return true}return false}
+function collidesTanks(o,nx,ny){const t={x:nx,y:ny,w:o.w,h:o.h};for(const x of[...game.players,...game.enemies])if(x!==o&&x.alive&&rectsOverlap(t,x))return true;return false}
+function tryMove(o,dx,dy,dt){let s=o.speed;if(tileAt(o.x,o.y)===ICE)s*=1.25;const nx=o.x+dx*s*dt,ny=o.y+dy*s*dt;if(!collidesMap(o,nx,ny)&&!collidesTanks(o,nx,ny)){o.x=nx;o.y=ny;return true}return false}
+function makePlayer(id,x,y,color,level){return{kind:"player",id,x,y,w:25,h:25,dir:"up",speed:125,color,level,lives:3,alive:true,respawn:0,cooldown:0,invuln:2,score:0}}
+function enemySpec(type){if(type==="snow")return{speed:78,hp:1,fire:1.5,color:"#eee"};if(type==="mosquito")return{speed:150,hp:1,fire:1,color:"#ffd23f"};if(type==="assault")return{speed:92,hp:2,fire:.8,color:"#8fb359"};return{speed:68,hp:4,fire:.65,color:"#5f6d45"}}
+function makeEnemy(type,x,y,bonusCarrier=false){const s=enemySpec(type);return{kind:"enemy",type,x,y,w:25,h:25,dir:"down",speed:s.speed,hp:s.hp,maxHp:s.hp,color:s.color,alive:true,cooldown:rand(.3,1.1),fireRate:s.fire,think:0,stuck:0,bonusCarrier}}
+function bulletSpec(p){if(p.level===1)return{speed:260,damage:1,max:1,pierce:0,steel:false,cd:.48};if(p.level===2)return{speed:340,damage:1,max:1,pierce:0,steel:false,cd:.36};if(p.level===3)return{speed:380,damage:2,max:2,pierce:0,steel:false,cd:.25};return{speed:470,damage:4,max:3,pierce:1,steel:true,cd:.18}}
+function shoot(t){if(!t.alive||t.cooldown>0)return;let s;if(t.kind==="player"){s=bulletSpec(t);if(game.bullets.filter(b=>b.owner===t&&b.alive).length>=s.max)return}else s={speed:t.type==="mosquito"?340:280,damage:1,max:1,pierce:0,steel:false,cd:t.fireRate};const d=DIRS[t.dir];game.bullets.push({x:t.x+d.x*19,y:t.y+d.y*19,w:6,h:6,dx:d.x,dy:d.y,speed:s.speed,damage:s.damage,pierce:s.pierce,steel:s.steel,owner:t,alive:true});t.cooldown=s.cd}
+function destroyTile(tx,ty,b){const t=game.map[ty][tx];if(t===BRICK){game.map[ty][tx]=EMPTY;b.alive=false;return}if(t===STEEL&&b.steel){game.map[ty][tx]=EMPTY;b.alive=false;return}if(t===BASE){game.baseAlive=false;b.alive=false}else if(t!==EMPTY&&t!==BUSH&&t!==ICE)b.alive=false}
+function spawnBonus(x,y){game.bonuses.push({x,y,w:24,h:24,type:choice(["life","star","helmet","clock","grenade","shovel"]),ttl:12,alive:true})}
+function applyBonus(p,b){if(b.type==="life")p.lives++;if(b.type==="star")p.level=Math.min(4,p.level+1);if(b.type==="helmet")p.invuln=8;if(b.type==="clock")game.freezeEnemies=6;if(b.type==="grenade")for(const e of game.enemies)if(e.alive){e.alive=false;p.score+=100}if(b.type==="shovel")for(const[x,y]of[[12,22],[13,22],[14,22],[12,23],[14,23],[12,24],[13,24],[14,24]])game.map[y][x]=STEEL;b.alive=false}
+function respawnPlayer(p){p.x=p.id===1?11.5*TILE:14.5*TILE;p.y=23.5*TILE;p.dir="up";p.alive=true;p.invuln=2}
+function hitTank(t,b){if(t.kind==="player"){if(t.invuln>0)return;t.lives--;t.alive=false;t.respawn=1.2;b.alive=false}else{t.hp-=b.damage;if(t.hp<=0){t.alive=false;if(b.owner.kind==="player")b.owner.score+=100*t.maxHp;if(t.bonusCarrier)spawnBonus(t.x,t.y)}if(b.pierce>0)b.pierce--;else b.alive=false}}
+function updateBullets(dt){for(const b of game.bullets){if(!b.alive)continue;b.x+=b.dx*b.speed*dt;b.y+=b.dy*b.speed*dt;if(b.x<0||b.y<0||b.x>W||b.y>H){b.alive=false;continue}const tx=Math.floor(b.x/TILE),ty=Math.floor(b.y/TILE),t=game.map[ty]?.[tx];if(t!==undefined&&t!==EMPTY&&t!==BUSH&&t!==ICE){destroyTile(tx,ty,b);continue}for(const target of(b.owner.kind==="player"?game.enemies:game.players)){if(target.alive&&rectsOverlap(b,target)){hitTank(target,b);break}}}game.bullets=game.bullets.filter(b=>b.alive)}
+function playerInput(p,dt){if(!p.alive)return;let dx=0,dy=0,fire=false;if(p.id===1){if(keys.KeyW){dy=-1;p.dir="up"}else if(keys.KeyS){dy=1;p.dir="down"}else if(keys.KeyA){dx=-1;p.dir="left"}else if(keys.KeyD){dx=1;p.dir="right"}fire=keys.Space}else{if(keys.ArrowUp){dy=-1;p.dir="up"}else if(keys.ArrowDown){dy=1;p.dir="down"}else if(keys.ArrowLeft){dx=-1;p.dir="left"}else if(keys.ArrowRight){dx=1;p.dir="right"}fire=keys.Enter||keys.Numpad0}if(dx||dy)tryMove(p,dx,dy,dt);if(fire)shoot(p)}
+function lineOfSight(a,b){if(Math.abs(a.x-b.x)<18){for(let y=Math.min(a.y,b.y);y<Math.max(a.y,b.y);y+=TILE/2)if(solidTile(tileAt(a.x,y)))return false;return true}if(Math.abs(a.y-b.y)<18){for(let x=Math.min(a.x,b.x);x<Math.max(a.x,b.x);x+=TILE/2)if(solidTile(tileAt(x,a.y)))return false;return true}return false}
+function chooseEnemyDir(e){const base={x:13.5*TILE,y:23.5*TILE},alive=game.players.filter(p=>p.alive),target=alive.length&&Math.random()<.28?alive.sort((a,b)=>dist(e,a)-dist(e,b))[0]:base,prefs=[],dx=target.x-e.x,dy=target.y-e.y;if(Math.abs(dy)>=Math.abs(dx))prefs.push(dy>0?"down":"up",dx>0?"right":"left");else prefs.push(dx>0?"right":"left",dy>0?"down":"up");for(const d of DIR_NAMES)if(!prefs.includes(d))prefs.push(d);for(const name of prefs){const d=DIRS[name];if(!collidesMap(e,e.x+d.x*8,e.y+d.y*8)&&!collidesTanks(e,e.x+d.x*8,e.y+d.y*8)){e.dir=name;return}}e.dir=choice(DIR_NAMES)}
+function updateEnemy(e,dt){if(!e.alive||game.freezeEnemies>0)return;e.cooldown-=dt;e.think-=dt;if(e.think<=0){e.think=rand(.35,.8);chooseEnemyDir(e)}const base={x:13.5*TILE,y:23.5*TILE};let aim=null;for(const p of game.players)if(p.alive&&lineOfSight(e,p)){aim=p;break}if(!aim&&lineOfSight(e,base))aim=base;if(aim){const dx=aim.x-e.x,dy=aim.y-e.y;if(Math.abs(dx)<18)e.dir=dy>0?"down":"up";else if(Math.abs(dy)<18)e.dir=dx>0?"right":"left";shoot(e)}else if(e.cooldown<=0&&Math.random()<.04)shoot(e);const d=DIRS[e.dir],moved=tryMove(e,d.x,d.y,dt);if(!moved){e.stuck+=dt;if(e.stuck>.12){shoot(e);chooseEnemyDir(e);e.stuck=0}}else e.stuck=0}
+function spawnEnemy(){if(game.spawned>=game.totalEnemies||game.enemies.filter(e=>e.alive).length>=5)return;const n=game.spawned;let type;if(n%7===1||n%7===4)type="mosquito";else if(n%6===3)type="assault";else if(n%8===6)type="heavy";else type="snow";const p=[{x:2.5*TILE,y:1.5*TILE},{x:13.5*TILE,y:1.5*TILE},{x:23.5*TILE,y:1.5*TILE}][n%3];game.enemies.push(makeEnemy(type,p.x,p.y,n%4===3));game.spawned++}
+function updateBonuses(dt){for(const b of game.bonuses){if(!b.alive)continue;b.ttl-=dt;if(b.ttl<=0){b.alive=false;continue}for(const p of game.players)if(p.alive&&rectsOverlap(p,b))applyBonus(p,b)}game.bonuses=game.bonuses.filter(b=>b.alive)}
+function update(dt){if(game.paused||game.gameOver)return;game.time+=dt;game.freezeEnemies=Math.max(0,game.freezeEnemies-dt);for(const p of game.players){p.cooldown=Math.max(0,p.cooldown-dt);p.invuln=Math.max(0,p.invuln-dt);if(!p.alive){p.respawn-=dt;if(p.respawn<=0&&p.lives>0)respawnPlayer(p)}else playerInput(p,dt)}for(const e of game.enemies){updateEnemy(e,dt);e.cooldown=Math.max(0,e.cooldown-dt)}game.spawnTimer-=dt;if(game.spawnTimer<=0){spawnEnemy();game.spawnTimer=1.25}updateBullets(dt);updateBonuses(dt);game.enemies=game.enemies.filter(e=>e.alive||e.hp>0);if(!game.baseAlive||game.players.every(p=>!p.alive&&p.lives<=0))game.gameOver="ПОРАЖЕНИЕ";if(game.spawned>=game.totalEnemies&&game.enemies.filter(e=>e.alive).length===0)game.gameOver="ПОБЕДА"}
+function drawTile(t,x,y){const px=x*TILE,py=y*TILE;if(t===EMPTY){ctx.fillStyle="#050505";ctx.fillRect(px,py,TILE,TILE)}if(t===BRICK){ctx.fillStyle="#8d2e1f";ctx.fillRect(px,py,TILE,TILE);ctx.fillStyle="#d75a35";for(let yy=0;yy<4;yy++)for(let xx=0;xx<2;xx++)ctx.fillRect(px+xx*16+(yy%2)*8,py+yy*8,14,6)}if(t===STEEL){ctx.fillStyle="#8a8a8a";ctx.fillRect(px,py,TILE,TILE);ctx.fillStyle="#d0d0d0";ctx.fillRect(px+3,py+3,26,5);ctx.fillRect(px+3,py+16,26,5);ctx.fillStyle="#444";ctx.fillRect(px+5,py+7,22,7);ctx.fillRect(px+5,py+20,22,7)}if(t===WATER){ctx.fillStyle="#123d8a";ctx.fillRect(px,py,TILE,TILE);ctx.fillStyle="#2a74d6";ctx.fillRect(px,py+6,TILE,4);ctx.fillRect(px+8,py+20,24,4)}if(t===BUSH){ctx.fillStyle="#050505";ctx.fillRect(px,py,TILE,TILE);ctx.fillStyle="#1a6a2c";ctx.fillRect(px+2,py+5,12,12);ctx.fillRect(px+14,py+2,15,14);ctx.fillRect(px+7,py+16,20,13)}if(t===ICE){ctx.fillStyle="#9fe8ff";ctx.fillRect(px,py,TILE,TILE);ctx.strokeStyle="#e6fbff";ctx.beginPath();ctx.moveTo(px+3,py+25);ctx.lineTo(px+25,py+4);ctx.stroke()}if(t===BASE){ctx.fillStyle="#4b4b4b";ctx.fillRect(px,py,TILE,TILE);ctx.fillStyle="#e5c14f";ctx.beginPath();ctx.moveTo(px+16,py+5);ctx.lineTo(px+23,py+14);ctx.lineTo(px+19,py+27);ctx.lineTo(px+13,py+27);ctx.lineTo(px+9,py+14);ctx.closePath();ctx.fill()}}
+function drawTank(t){if(!t.alive)return;ctx.save();ctx.translate(t.x,t.y);ctx.rotate(DIRS[t.dir].a);if(t.invuln>0&&Math.floor(game.time*12)%2===0){ctx.restore();return}ctx.fillStyle=t.color;if(t.type==="mosquito"){ctx.fillRect(-7,-13,14,26);ctx.fillStyle="#333";ctx.fillRect(-11,-11,4,22);ctx.fillRect(7,-11,4,22);ctx.fillStyle="#ddd";ctx.fillRect(-2,-19,4,13)}else if(t.type==="heavy"){ctx.fillRect(-14,-14,28,28);ctx.fillStyle="#333";ctx.fillRect(-18,-15,5,30);ctx.fillRect(13,-15,5,30);ctx.fillStyle="#222";ctx.fillRect(-4,-19,8,17)}else{const s=t.kind==="player"?(t.level>=3?13:11):12;ctx.fillRect(-s,-s,s*2,s*2);ctx.fillStyle="#333";ctx.fillRect(-s-4,-s,4,s*2);ctx.fillRect(s,-s,4,s*2);ctx.fillStyle="#ddd";ctx.fillRect(-3,-18,6,16)}if(t.kind==="enemy"&&t.bonusCarrier){ctx.strokeStyle="#ff2b2b";ctx.lineWidth=3;ctx.strokeRect(-16,-16,32,32)}ctx.restore();if(t.kind==="enemy"&&t.maxHp>1){ctx.fillStyle="#222";ctx.fillRect(t.x-14,t.y+18,28,4);ctx.fillStyle="#f25f5c";ctx.fillRect(t.x-14,t.y+18,28*(t.hp/t.maxHp),4)}}
+function drawBonus(b){const c={life:"#6ee7ff",star:"#ffd54f",helmet:"#9cff9c",clock:"#b4a0ff",grenade:"#ff786e",shovel:"#b9c0c7"},l={life:"1UP",star:"★",helmet:"H",clock:"T",grenade:"G",shovel:"S"};ctx.fillStyle=c[b.type];ctx.fillRect(b.x-12,b.y-12,24,24);ctx.fillStyle="#111";ctx.font="bold 14px monospace";ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText(l[b.type],b.x,b.y+1)}
+function draw(){ctx.fillStyle="#000";ctx.fillRect(0,0,W,H);for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++)drawTile(game.map[y][x],x,y);for(const b of game.bullets){ctx.fillStyle=b.steel?"#fff06a":"#fff";ctx.fillRect(b.x-3,b.y-3,6,6)}for(const e of game.enemies)drawTank(e);for(const p of game.players)drawTank(p);for(const b of game.bonuses)drawBonus(b);ctx.fillStyle="rgba(0,0,0,.72)";ctx.fillRect(0,0,W,30);ctx.font="bold 16px monospace";ctx.textAlign="left";ctx.textBaseline="middle";ctx.fillStyle="#ff6f61";ctx.fillText(`P1 жизни:${game.players[0].lives} ур:${game.players[0].level} очки:${game.players[0].score}`,8,15);ctx.fillStyle="#61b7ff";ctx.fillText(`P2 жизни:${game.players[1].lives} ур:${game.players[1].level} очки:${game.players[1].score}`,330,15);if(game.paused||game.gameOver){ctx.fillStyle="rgba(0,0,0,.72)";ctx.fillRect(0,0,W,H);ctx.fillStyle="#fff";ctx.font="bold 48px monospace";ctx.textAlign="center";ctx.fillText(game.gameOver||"ПАУЗА",W/2,H/2)}}
+function startGame(){game={map:makeMap(),players:[makePlayer(1,11.5*TILE,23.5*TILE,"#f47b20",+p1lvl.value),makePlayer(2,14.5*TILE,23.5*TILE,"#53b7ff",+p2lvl.value)],enemies:[],bullets:[],bonuses:[],totalEnemies:20,spawned:0,spawnTimer:.4,freezeEnemies:0,baseAlive:true,paused:false,gameOver:null,time:0}}
+startBtn.onclick=startGame;pauseBtn.onclick=()=>game.paused=!game.paused;let last=performance.now();function loop(now){const dt=Math.min(.033,(now-last)/1000);last=now;update(dt);draw();requestAnimationFrame(loop)}startGame();requestAnimationFrame(loop);
+</script>
+</body>
+</html>
