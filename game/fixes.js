@@ -17,11 +17,9 @@
 
   makeMap = function () {
     const map = originalMakeMap();
-    // Безопасные площадки игроков по сторонам от базы.
     clearSpawnArea(map, 9, 23);
     clearSpawnArea(map, 17, 23);
 
-    // Защита базы остаётся на месте.
     map[23][13] = BASE;
     [[12,22],[13,22],[14,22],[12,23],[14,23],[12,24],[13,24],[14,24]]
       .forEach(([x,y]) => map[y][x] = BRICK);
@@ -53,7 +51,14 @@
     p.invuln = 2;
   };
 
-  // Надёжное управление обоих игроков. Для второго также добавлены IJKL + Numpad0.
+  // Более классический темп: быстрым остаётся только Комар.
+  enemySpec = function (type) {
+    if (type === "snow") return {speed:56,hp:1,fire:1.55,color:"#eee",name:"Снежок"};
+    if (type === "mosquito") return {speed:108,hp:1,fire:1.0,color:"#ffd23f",name:"Комар"};
+    if (type === "assault") return {speed:68,hp:2,fire:0.82,color:"#8fb359",name:"Штурмовик"};
+    return {speed:48,hp:4,fire:0.7,color:"#5f6d45",name:"Толстяк"};
+  };
+
   playerInput = function (p, dt) {
     if (!p.alive) return;
     let dx = 0, dy = 0, fire = false;
@@ -76,7 +81,7 @@
     if (fire) shoot(p);
   };
 
-  // Проверка траектории небольшими шагами: снаряд больше не перескакивает кирпич.
+  // Снаряды идут через воду, лес и лёд, но не перескакивают кирпич/сталь/базу.
   updateBullets = function (dt) {
     for (const b of game.bullets) {
       if (!b.alive) continue;
@@ -98,7 +103,8 @@
         const ty = Math.floor(b.y / TILE);
         const tile = game.map[ty] && game.map[ty][tx];
 
-        if (tile !== undefined && tile !== EMPTY && tile !== BUSH && tile !== ICE) {
+        const projectilePasses = tile === EMPTY || tile === BUSH || tile === ICE || tile === WATER;
+        if (tile !== undefined && !projectilePasses) {
           destroyTile(tx, ty, b);
           break;
         }
@@ -115,7 +121,6 @@
     game.bullets = game.bullets.filter(b => b.alive);
   };
 
-  // Не даём странице забирать стрелки и Enter у второго игрока.
   window.addEventListener("keydown", event => {
     if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Enter","Numpad0","Space"].includes(event.code)) {
       event.preventDefault();
